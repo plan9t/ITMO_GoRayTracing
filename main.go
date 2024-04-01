@@ -113,7 +113,7 @@ func castRay(orig, dir Vec3f, spheres []Sphere, lights []Light, depth int) Vec3f
 	}
 
 	if hitSphere == nil {
-		return Vec3f{0.2, 0.7, 0.8} // background color
+		return Vec3f{0.2, 0.7, 0.8} // Цвет фона
 	}
 
 	// Точка пересечения луча со сферой
@@ -174,7 +174,7 @@ func colorToRGBA(c Vec3f) color.RGBA {
 // render - генерация изображения.
 func render(spheres []Sphere, lights []Light, depth int) {
 	const width, height = 1024, 768
-	const fov = math.Pi / 3 // field of view
+	const fov = math.Pi / 3 // Поле зрения
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
 	for j := 0; j < height; j++ {
@@ -187,7 +187,7 @@ func render(spheres []Sphere, lights []Light, depth int) {
 		}
 	}
 
-	file, err := os.Create("out/out20.png")
+	file, err := os.Create("result.png")
 	if err != nil {
 		panic(err)
 	}
@@ -205,6 +205,7 @@ func render(spheres []Sphere, lights []Light, depth int) {
 }
 
 func main() {
+	// Источники света
 	lights := []Light{
 		*NewLight(Vec3f{X: 1.0, Y: 2.0, Z: 3.0}, 1.4),
 		*NewLight(Vec3f{X: 3.0, Y: -2.0, Z: -3.0}, 1.0),
@@ -218,5 +219,6 @@ func main() {
 		{Center: Vec3f{X: -2, Y: 0, Z: -10}, Radius: 4.2, Color: Vec3f{X: 0.3, Y: 0.1, Z: 0.9}, Albedo: 0.5, SpecularExponent: 50},
 	}
 
+	// Рендер. Depth - глубина рекурсии
 	render(spheres, lights, 200)
 }
