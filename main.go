@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -15,11 +16,31 @@ type Vec3f struct {
 type Sphere struct {
 	Center Vec3f
 	Radius float64
+	Color  Vec3f
+}
+
+type Light struct {
+	Position  Vec3f
+	Intensity float64
+}
+
+func NewLight(position Vec3f, intensity float64) *Light {
+	return &Light{Position: position, Intensity: intensity}
+}
+
+// Операция сложения векторов
+func (v Vec3f) Add(other Vec3f) Vec3f {
+	return Vec3f{v.X + other.X, v.Y + other.Y, v.Z + other.Z}
 }
 
 // Операция вычитания векторов
 func (v Vec3f) Subtract(other Vec3f) Vec3f {
 	return Vec3f{v.X - other.X, v.Y - other.Y, v.Z - other.Z}
+}
+
+// Операция умножения вектора на скаляр
+func (v Vec3f) MulScalar(scalar float64) Vec3f {
+	return Vec3f{v.X * scalar, v.Y * scalar, v.Z * scalar}
 }
 
 // Скалярное произведение векторов
@@ -34,8 +55,8 @@ func (v Vec3f) Length2() float64 {
 
 // Нормализация вектора
 func (v Vec3f) Normalize() Vec3f {
-	len := math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
-	return Vec3f{v.X / len, v.Y / len, v.Z / len}
+	sqrt := math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
+	return Vec3f{v.X / sqrt, v.Y / sqrt, v.Z / sqrt}
 }
 
 // Пересечение луча со сферой
@@ -59,12 +80,35 @@ func (s *Sphere) RayIntersect(orig, dir Vec3f) (bool, float64) {
 }
 
 // castRay определяет цвет луча.
-func castRay(orig, dir Vec3f, sphere Sphere) Vec3f {
-	hit, _ := sphere.RayIntersect(orig, dir)
-	if !hit {
+func castRay(orig, dir Vec3f, spheres []Sphere, lights []Light) Vec3f {
+	closestDist := math.MaxFloat64
+	var hitSphere *Sphere
+	for i := range spheres {
+		hit, dist := spheres[i].RayIntersect(orig, dir)
+		if hit && dist < closestDist {
+			closestDist = dist
+			hitSphere = &spheres[i]
+		}
+	}
+
+	if hitSphere == nil {
 		return Vec3f{0.2, 0.7, 0.8} // background color
 	}
-	return Vec3f{0.4, 0.4, 0.3} // sphere color
+
+	// Точка пересечения луча со сферой
+	point := orig.Add(dir.MulScalar(closestDist))
+	// Нормаль в точке пересечения
+	N := point.Subtract(hitSphere.Center).Normalize()
+	// Диффузная интенсивность света
+	diffuseLightIntensity := 0.0
+
+	for _, light := range lights {
+		lightDir := light.Position.Subtract(point).Normalize()
+		diffuseLightIntensity += light.Intensity * math.Max(0, lightDir.Dot(N))
+	}
+
+	// Возвращаем цвет сферы, умноженный на интенсивность света
+	return hitSphere.Color.MulScalar(diffuseLightIntensity)
 }
 
 // colorToRGBA преобразует Vec3f в color.RGBA.
@@ -78,7 +122,7 @@ func colorToRGBA(c Vec3f) color.RGBA {
 }
 
 // render - генерация изображения.
-func render(sphere Sphere) {
+func render(spheres []Sphere, lights []Light) {
 	const width, height = 1024, 768
 	const fov = math.Pi / 3 // field of view
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -88,27 +132,40 @@ func render(sphere Sphere) {
 			x := (2*(float64(i)+0.5)/float64(width) - 1) * math.Tan(fov/2) * float64(width) / float64(height)
 			y := -(2*(float64(j)+0.5)/float64(height) - 1) * math.Tan(fov/2)
 			dir := Vec3f{x, y, -1}.Normalize()
-			col := castRay(Vec3f{0, 0, 0}, dir, sphere)
+			col := castRay(Vec3f{0, 0, 0}, dir, spheres, lights)
 			img.Set(i, j, colorToRGBA(col))
 		}
 	}
 
-	file, err := os.Create("out/out2.png")
+	file, err := os.Create("out/out9.png")
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Printf("Close error")
+		}
+	}(file)
 
-	png.Encode(file, img)
+	err = png.Encode(file, img)
+	if err != nil {
+		fmt.Printf("Encode error")
+	}
 }
 
 func main() {
-	// Задаем параметры сферы.
-	sphere := Sphere{
-		Center: Vec3f{X: 0, Y: 0, Z: -3}, // Центр сферы
-		Radius: 1.0,                      // Радиус сферы
+	lights := []Light{
+		*NewLight(Vec3f{X: 1.0, Y: 2.0, Z: 3.0}, 1.4),
+		*NewLight(Vec3f{X: 3.0, Y: -2.0, Z: -3.0}, 1.0),
 	}
 
-	// Главная функция для генерации изображения
-	render(sphere)
+	// Инициализация сцены с несколькими сферами
+	spheres := []Sphere{
+		{Center: Vec3f{X: 0, Y: 0, Z: -3}, Radius: 0.8, Color: Vec3f{X: 0.4, Y: 0.4, Z: 0.3}},
+		{Center: Vec3f{X: 2, Y: 0, Z: -4}, Radius: 0.5, Color: Vec3f{X: 0.7, Y: 0.3, Z: 0.5}},
+		{Center: Vec3f{X: -2, Y: 0, Z: -5}, Radius: 1.2, Color: Vec3f{X: 0.3, Y: 0.6, Z: 0.7}},
+	}
+
+	render(spheres, lights)
 }
