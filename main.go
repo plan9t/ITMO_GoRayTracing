@@ -61,6 +61,11 @@ func (v Vec3f) Normalize() Vec3f {
 	return Vec3f{v.X / sqrt, v.Y / sqrt, v.Z / sqrt}
 }
 
+// Length возвращает длину вектора.
+func (v Vec3f) Length() float64 {
+	return math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
+}
+
 // reflect отражает вектор относительно нормали.
 func reflect(I, N Vec3f) Vec3f {
 	return I.Subtract(N.MulScalar(2.0 * I.Dot(N)))
@@ -92,7 +97,11 @@ func (s *Sphere) RayIntersect(orig, dir Vec3f) (bool, float64) {
 }
 
 // castRay определяет цвет луча.
-func castRay(orig, dir Vec3f, spheres []Sphere, lights []Light) Vec3f {
+func castRay(orig, dir Vec3f, spheres []Sphere, lights []Light, depth int) Vec3f {
+	if depth <= 0 {
+		return Vec3f{0, 0, 0} // Достигнута максимальная глубина рекурсии, возвращаем черный цвет
+	}
+
 	closestDist := math.MaxFloat64
 	var hitSphere *Sphere
 	for i := range spheres {
@@ -117,15 +126,39 @@ func castRay(orig, dir Vec3f, spheres []Sphere, lights []Light) Vec3f {
 
 	for _, light := range lights {
 		lightDir := light.Position.Subtract(point).Normalize()
-		// Диффузное освещение
-		diffuseLightIntensity += light.Intensity * math.Max(0, lightDir.Dot(N))
-		// Зеркальное отражение (блики)
-		reflection := reflect(lightDir.Negate(), N).Normalize()
-		specularLightIntensity += math.Pow(math.Max(0, reflection.Dot(dir.Negate())), hitSphere.SpecularExponent) * light.Intensity
+		shadowOrig := point
+		if lightDir.Dot(N) < 0 {
+			shadowOrig = shadowOrig.Subtract(N.MulScalar(1e-3))
+		} else {
+			shadowOrig = shadowOrig.Add(N.MulScalar(1e-3))
+		}
+		inShadow := false
+		for _, sphere := range spheres {
+			hit, _ := sphere.RayIntersect(shadowOrig, lightDir)
+			if hit {
+				inShadow = true
+				break
+			}
+		}
+		if !inShadow {
+			diffuseLightIntensity += light.Intensity * math.Max(0, lightDir.Dot(N))
+			reflection := reflect(lightDir.Negate(), N).Normalize()
+			specularLightIntensity += math.Pow(math.Max(0, reflection.Dot(dir.Negate())), hitSphere.SpecularExponent) * light.Intensity
+		}
 	}
 
-	// Возвращаем цвет сферы, умноженный на интенсивность света и добавляем блики
-	return hitSphere.Color.MulScalar(diffuseLightIntensity * hitSphere.Albedo).Add(Vec3f{1.0, 1.0, 1.0}.MulScalar(specularLightIntensity))
+	// Отраженное направление
+	reflectDir := reflect(dir, N).Normalize()
+	reflectOrig := point
+	if reflectDir.Dot(N) < 0 {
+		reflectOrig = reflectOrig.Subtract(N.MulScalar(1e-3))
+	} else {
+		reflectOrig = reflectOrig.Add(N.MulScalar(1e-3))
+	}
+	reflectColor := castRay(reflectOrig, reflectDir, spheres, lights, depth-1)
+
+	// Возвращаем цвет с учетом отраженного цвета и добавляем блики
+	return hitSphere.Color.MulScalar(diffuseLightIntensity * hitSphere.Albedo).Add(Vec3f{1.0, 1.0, 1.0}.MulScalar(specularLightIntensity)).Add(reflectColor.MulScalar(1 - hitSphere.Albedo))
 }
 
 // colorToRGBA преобразует Vec3f в color.RGBA.
@@ -139,7 +172,7 @@ func colorToRGBA(c Vec3f) color.RGBA {
 }
 
 // render - генерация изображения.
-func render(spheres []Sphere, lights []Light) {
+func render(spheres []Sphere, lights []Light, depth int) {
 	const width, height = 1024, 768
 	const fov = math.Pi / 3 // field of view
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -149,12 +182,12 @@ func render(spheres []Sphere, lights []Light) {
 			x := (2*(float64(i)+0.5)/float64(width) - 1) * math.Tan(fov/2) * float64(width) / float64(height)
 			y := -(2*(float64(j)+0.5)/float64(height) - 1) * math.Tan(fov/2)
 			dir := Vec3f{x, y, -1}.Normalize()
-			col := castRay(Vec3f{0, 0, 0}, dir, spheres, lights)
+			col := castRay(Vec3f{0, 0, 0}, dir, spheres, lights, depth)
 			img.Set(i, j, colorToRGBA(col))
 		}
 	}
 
-	file, err := os.Create("out/out11.png")
+	file, err := os.Create("out/out20.png")
 	if err != nil {
 		panic(err)
 	}
@@ -179,10 +212,11 @@ func main() {
 
 	// Инициализация сцены с несколькими сферами
 	spheres := []Sphere{
-		{Center: Vec3f{X: 0, Y: 0, Z: -3}, Radius: 0.8, Color: Vec3f{X: 0.4, Y: 0.4, Z: 0.3}, Albedo: 0.9, SpecularExponent: 50},
-		{Center: Vec3f{X: 2, Y: 0, Z: -4}, Radius: 0.5, Color: Vec3f{X: 0.7, Y: 0.3, Z: 0.5}, Albedo: 0.9, SpecularExponent: 50},
-		{Center: Vec3f{X: -2, Y: 0, Z: -5}, Radius: 1.2, Color: Vec3f{X: 0.3, Y: 0.6, Z: 0.7}, Albedo: 0.3, SpecularExponent: 50},
+		{Center: Vec3f{X: 2.1, Y: 0, Z: -3}, Radius: 0.8, Color: Vec3f{X: 0.4, Y: 0.4, Z: 0.3}, Albedo: 0.25, SpecularExponent: 50},
+		{Center: Vec3f{X: 4, Y: 4, Z: -10}, Radius: 1.5, Color: Vec3f{X: 0.7, Y: 0.3, Z: 0.5}, Albedo: 0.5, SpecularExponent: 50},
+		{Center: Vec3f{X: 2, Y: -2.5, Z: -5}, Radius: 1.2, Color: Vec3f{X: 0.3, Y: 0.6, Z: 0.7}, Albedo: 0.5, SpecularExponent: 50},
+		{Center: Vec3f{X: -2, Y: 0, Z: -10}, Radius: 4.2, Color: Vec3f{X: 0.3, Y: 0.1, Z: 0.9}, Albedo: 0.5, SpecularExponent: 50},
 	}
 
-	render(spheres, lights)
+	render(spheres, lights, 200)
 }
