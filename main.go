@@ -14,9 +14,11 @@ type Vec3f struct {
 }
 
 type Sphere struct {
-	Center Vec3f
-	Radius float64
-	Color  Vec3f
+	Center           Vec3f
+	Radius           float64
+	Color            Vec3f
+	Albedo           float64 // Доля диффузного отражения
+	SpecularExponent float64 // Показатель степени блеска
 }
 
 type Light struct {
@@ -59,6 +61,16 @@ func (v Vec3f) Normalize() Vec3f {
 	return Vec3f{v.X / sqrt, v.Y / sqrt, v.Z / sqrt}
 }
 
+// reflect отражает вектор относительно нормали.
+func reflect(I, N Vec3f) Vec3f {
+	return I.Subtract(N.MulScalar(2.0 * I.Dot(N)))
+}
+
+// Negate инвертирует вектор.
+func (v Vec3f) Negate() Vec3f {
+	return Vec3f{-v.X, -v.Y, -v.Z}
+}
+
 // Пересечение луча со сферой
 func (s *Sphere) RayIntersect(orig, dir Vec3f) (bool, float64) {
 	L := s.Center.Subtract(orig)
@@ -99,16 +111,21 @@ func castRay(orig, dir Vec3f, spheres []Sphere, lights []Light) Vec3f {
 	point := orig.Add(dir.MulScalar(closestDist))
 	// Нормаль в точке пересечения
 	N := point.Subtract(hitSphere.Center).Normalize()
-	// Диффузная интенсивность света
+	// Диффузная интенсивность света и блики
 	diffuseLightIntensity := 0.0
+	specularLightIntensity := 0.0
 
 	for _, light := range lights {
 		lightDir := light.Position.Subtract(point).Normalize()
+		// Диффузное освещение
 		diffuseLightIntensity += light.Intensity * math.Max(0, lightDir.Dot(N))
+		// Зеркальное отражение (блики)
+		reflection := reflect(lightDir.Negate(), N).Normalize()
+		specularLightIntensity += math.Pow(math.Max(0, reflection.Dot(dir.Negate())), hitSphere.SpecularExponent) * light.Intensity
 	}
 
-	// Возвращаем цвет сферы, умноженный на интенсивность света
-	return hitSphere.Color.MulScalar(diffuseLightIntensity)
+	// Возвращаем цвет сферы, умноженный на интенсивность света и добавляем блики
+	return hitSphere.Color.MulScalar(diffuseLightIntensity * hitSphere.Albedo).Add(Vec3f{1.0, 1.0, 1.0}.MulScalar(specularLightIntensity))
 }
 
 // colorToRGBA преобразует Vec3f в color.RGBA.
@@ -137,7 +154,7 @@ func render(spheres []Sphere, lights []Light) {
 		}
 	}
 
-	file, err := os.Create("out/out9.png")
+	file, err := os.Create("out/out11.png")
 	if err != nil {
 		panic(err)
 	}
@@ -162,9 +179,9 @@ func main() {
 
 	// Инициализация сцены с несколькими сферами
 	spheres := []Sphere{
-		{Center: Vec3f{X: 0, Y: 0, Z: -3}, Radius: 0.8, Color: Vec3f{X: 0.4, Y: 0.4, Z: 0.3}},
-		{Center: Vec3f{X: 2, Y: 0, Z: -4}, Radius: 0.5, Color: Vec3f{X: 0.7, Y: 0.3, Z: 0.5}},
-		{Center: Vec3f{X: -2, Y: 0, Z: -5}, Radius: 1.2, Color: Vec3f{X: 0.3, Y: 0.6, Z: 0.7}},
+		{Center: Vec3f{X: 0, Y: 0, Z: -3}, Radius: 0.8, Color: Vec3f{X: 0.4, Y: 0.4, Z: 0.3}, Albedo: 0.9, SpecularExponent: 50},
+		{Center: Vec3f{X: 2, Y: 0, Z: -4}, Radius: 0.5, Color: Vec3f{X: 0.7, Y: 0.3, Z: 0.5}, Albedo: 0.9, SpecularExponent: 50},
+		{Center: Vec3f{X: -2, Y: 0, Z: -5}, Radius: 1.2, Color: Vec3f{X: 0.3, Y: 0.6, Z: 0.7}, Albedo: 0.3, SpecularExponent: 50},
 	}
 
 	render(spheres, lights)
